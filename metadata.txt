@@ -1,0 +1,27 @@
+[general]
+name=ArcGeek Survey
+qgisMinimumVersion=3.4
+qgisMaximumVersion=3.99
+description=Create and manage georeferenced surveys with mobile data collection and PostgreSQL/PostGIS integration
+version=1.0.0
+author=ArcGeek
+email=soporte@arcgeek.com
+about=ArcGeek Survey enables creation of spatial surveys with mobile GPS data collection, PostgreSQL/PostGIS database integration, and real-time form management. Build location-based surveys, collect field data through web interface, and visualize responses in QGIS. Supports both Qt5 and Qt6 for compatibility with current and future QGIS versions.
+tracker=https://github.com/franzpc/arcgeek_survey/issues
+repository=https://github.com/franzpc/arcgeek_survey
+tags=survey,postgis,forms,spatial,mobile,gps,fieldwork,data collection,qfield,survey123,postgresql,supabase,table
+homepage=https://acolita.com/survey
+category=Web
+icon=icon.png
+experimental=False
+deprecated=False
+hasProcessingProvider=no
+server=False
+changelog=1.0.0
+    - Initial release
+    - Create georeferenced surveys with custom fields
+    - PostgreSQL/PostGIS database integration
+    - Mobile-friendly data collection interface
+    - Real-time form management and response visualization
+    - Support for both Qt5 and Qt6
+    - Secure token-based authentication system
