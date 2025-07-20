@@ -24,8 +24,8 @@ class PluginTokenManager:
         self.cache_duration = 1800
         self.lock = threading.Lock()
         
-        self.supabase_url = 'https://neixcsnkwtgdxkucfcnb.supabase.co'
-        self.supabase_key = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5laXhjc25rd3RnZHhrdWNmY25iIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDk1NzQ0OTQsImV4cCI6MjA2NTE1MDQ5NH0.OLcE9XYvYL6vzuXqcgp3dMowDZblvQo8qR21Cj39nyY'
+        self.supabase_url = '#'
+        self.supabase_key = '#'
     
     def fetch_plugin_token(self) -> Optional[str]:
         if not requests:
