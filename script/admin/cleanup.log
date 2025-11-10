@@ -1,0 +1,13 @@
+[2025-07-25 20:00:37] === ArcGeek Survey Cleanup Started ===
+[2025-07-25 20:00:37] Cleanup unverified users: No users to delete
+[2025-07-25 20:00:37] Cleanup inactive users: No users to delete
+[2025-07-25 20:00:37] Cleanup unused forms: No forms to archive
+[2025-07-25 20:00:37] Token cleanup: 1 password resets, 0 email verifications, 0 login attempts, 5 reset attempts
+[2025-07-25 20:00:37] === Cleanup Summary ===
+[2025-07-25 20:00:37] Unverified users: 0
+[2025-07-25 20:00:37] Inactive users: 0
+[2025-07-25 20:00:37] Unused forms: 0
+[2025-07-25 20:00:37] Old tokens: 6
+[2025-07-25 20:00:37] Total items cleaned: 6
+[2025-07-25 20:00:37] Execution time: 0s
+[2025-07-25 20:00:37] === Cleanup Completed ===
