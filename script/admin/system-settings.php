@@ -163,15 +163,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-function get_system_setting($key, $default = '') {
-    global $pdo;
-    
-    $stmt = $pdo->prepare("SELECT setting_value FROM system_settings WHERE setting_key = ?");
-    $stmt->execute([$key]);
-    $result = $stmt->fetchColumn();
-    
-    return $result !== false ? $result : $default;
-}
+// Functions get_system_setting() and set_system_setting() are now in database.php
+// Removed duplicate definitions to prevent error 500
 
 function cleanup_unverified_users() {
     global $pdo;
