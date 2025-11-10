@@ -200,35 +200,11 @@ function get_cleanup_candidates() {
 }
 
 $cleanup_candidates = get_cleanup_candidates();
-?>
-<!DOCTYPE html>
-<html lang="<?php echo $lang; ?>">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?php echo $strings['admin_panel']; ?> - ArcGeek Survey</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
-</head>
-<body class="bg-light">
-    <nav class="navbar navbar-expand-lg navbar-dark bg-danger">
-        <div class="container">
-            <a class="navbar-brand" href="#">
-                <i class="fas fa-user-shield"></i> <?php echo $strings['admin_panel']; ?>
-            </a>
-            <div class="navbar-nav ms-auto">
-                <a class="nav-link" href="analytics.php"><i class="fas fa-chart-line"></i> Analytics</a>
-                <a class="nav-link" href="system-settings.php"><i class="fas fa-cogs"></i> Settings</a>
-                <a class="nav-link" href="config.php">Config</a>
-                <a class="nav-link" href="../dashboard/"><?php echo $strings['dashboard']; ?></a>
-                <form method="POST" action="../auth/logout.php" class="d-inline">
-                    <button type="submit" class="btn btn-outline-light btn-sm"><?php echo $strings['logout']; ?></button>
-                </form>
-            </div>
-        </div>
-    </nav>
 
-    <div class="container mt-4">
+$page_title = $strings['admin_panel'];
+$navbar_class = "bg-danger";
+include '../includes/header.php';
+?>
         <?php if ($message): ?>
             <div class="alert alert-success alert-dismissible fade show">
                 <i class="fas fa-check-circle"></i> <?php echo $message; ?>
@@ -521,6 +497,4 @@ $cleanup_candidates = get_cleanup_candidates();
         </div>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-</body>
-</html>
+<?php include '../includes/footer.php'; ?>
