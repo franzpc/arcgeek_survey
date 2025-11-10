@@ -486,14 +486,14 @@ function validate_plugin_credentials($email, $password) {
 
 function get_user_database_config($user_id) {
     global $pdo;
-    
+
     try {
         $stmt = $pdo->prepare("SELECT postgres_host, postgres_port, postgres_db, postgres_user, postgres_pass, supabase_url, supabase_key, storage_preference FROM users WHERE id = ?");
         $stmt->execute([$user_id]);
         $user = $stmt->fetch();
-        
+
         if (!$user) return null;
-        
+
         return [
             'postgres' => [
                 'host' => decrypt_credential($user['postgres_host']),
@@ -508,10 +508,106 @@ function get_user_database_config($user_id) {
             ],
             'storage_preference' => $user['storage_preference']
         ];
-        
+
     } catch (Exception $e) {
         error_log("Database config error: " . $e->getMessage());
         return null;
     }
+}
+
+// ============================================================
+// NEW FUNCTIONS FOR SECURITY CONFIGURATION FROM DATABASE
+// Added: 2025-01-10 - Store security settings in DB instead of hardcoded
+// ============================================================
+
+function get_admin_setting($key, $default = '') {
+    global $pdo;
+
+    try {
+        $stmt = $pdo->prepare("SELECT config_value FROM admin_config WHERE config_key = ?");
+        $stmt->execute([$key]);
+        $result = $stmt->fetchColumn();
+
+        return $result !== false ? $result : $default;
+    } catch (Exception $e) {
+        error_log("Admin setting error: " . $e->getMessage());
+        return $default;
+    }
+}
+
+function set_admin_setting($key, $value) {
+    global $pdo;
+
+    try {
+        $stmt = $pdo->prepare("INSERT INTO admin_config (config_key, config_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE config_value = VALUES(config_value), updated_at = NOW()");
+        return $stmt->execute([$key, $value]);
+    } catch (Exception $e) {
+        error_log("Set admin setting error: " . $e->getMessage());
+        return false;
+    }
+}
+
+function get_system_setting($key, $default = '') {
+    global $pdo;
+
+    try {
+        $stmt = $pdo->prepare("SELECT setting_value FROM system_settings WHERE setting_key = ?");
+        $stmt->execute([$key]);
+        $result = $stmt->fetchColumn();
+
+        return $result !== false ? $result : $default;
+    } catch (Exception $e) {
+        error_log("System setting error: " . $e->getMessage());
+        return $default;
+    }
+}
+
+function set_system_setting($key, $value) {
+    global $pdo;
+
+    try {
+        $stmt = $pdo->prepare("INSERT INTO system_settings (setting_key, setting_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value), updated_at = NOW()");
+        return $stmt->execute([$key, $value]);
+    } catch (Exception $e) {
+        error_log("Set system setting error: " . $e->getMessage());
+        return false;
+    }
+}
+
+function get_recaptcha_config() {
+    $enabled = get_admin_setting('recaptcha_enabled', '1');
+    $site_key = get_admin_setting('recaptcha_site_key', '');
+    $secret_key = get_admin_setting('recaptcha_secret_key', '');
+
+    // Fallback to hardcoded values if not in database (backwards compatibility)
+    if (empty($secret_key)) {
+        $secret_key = '6Lec8YIrAAAAACU9v1xZgNSn0lTEp8EWfLmwTQfw';
+    }
+
+    return [
+        'enabled' => $enabled == '1',
+        'site_key' => $site_key,
+        'secret_key' => $secret_key
+    ];
+}
+
+function get_plugin_auth_token() {
+    $token = get_admin_setting('plugin_auth_token', '');
+
+    // Fallback to hardcoded value if not in database (backwards compatibility)
+    if (empty($token)) {
+        $token = 'ArcGeek@2025_M@sterKEy_2017202219851986';
+    }
+
+    return $token;
+}
+
+function get_site_config() {
+    return [
+        'name' => get_system_setting('site_name', 'ArcGeek Survey'),
+        'logo_url' => get_system_setting('site_logo_url', ''),
+        'footer_text' => get_system_setting('site_footer_text', '© 2024 ArcGeek. Open Source Project'),
+        'support_email' => get_system_setting('site_support_email', 'soporte@arcgeek.com')
+    ];
 }
 ?>

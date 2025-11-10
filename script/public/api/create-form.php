@@ -12,7 +12,10 @@ header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Plugin-Toke
 $plugin_token = $_SERVER['HTTP_X_PLUGIN_TOKEN'] ?? '';
 $input = json_decode(file_get_contents('php://input'), true);
 
-if ($plugin_token !== 'ArcGeek@2025_M@sterKEy_2017202219851986') {
+// Get token from database (with fallback to hardcoded for backwards compatibility)
+$valid_token = get_plugin_auth_token();
+
+if ($plugin_token !== $valid_token) {
     http_response_code(401);
     echo json_encode(['error' => 'Invalid plugin token']);
     exit();
