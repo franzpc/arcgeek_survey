@@ -106,34 +106,46 @@ function validate_email($email) {
 }
 
 function validate_recaptcha($response, $action = 'submit') {
-    $secret_key = '6Lec8YIrAAAAACU9v1xZgNSn0lTEp8EWfLmwTQfw';
-    
+    $recaptcha_config = get_recaptcha_config();
+
+    // If reCAPTCHA is disabled, always return true
+    if (!$recaptcha_config['enabled']) {
+        return true;
+    }
+
+    $secret_key = $recaptcha_config['secret_key'];
+
+    if (empty($secret_key)) {
+        error_log("reCAPTCHA secret key not configured");
+        return false;
+    }
+
     $data = [
         'secret' => $secret_key,
         'response' => $response,
         'remoteip' => get_client_ip()
     ];
-    
+
     $ch = curl_init();
     curl_setopt($ch, CURLOPT_URL, 'https://www.google.com/recaptcha/api/siteverify');
     curl_setopt($ch, CURLOPT_POST, true);
     curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($data));
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($ch, CURLOPT_TIMEOUT, 10);
-    
+
     $response = curl_exec($ch);
     $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
     curl_close($ch);
-    
+
     if ($http_code === 200) {
         $result = json_decode($response, true);
         $score = $result['score'] ?? 0;
         $success = $result['success'] ?? false;
         $action_match = ($result['action'] ?? '') === $action;
-        
+
         return $success && $action_match && $score >= 0.5;
     }
-    
+
     return false;
 }
 
