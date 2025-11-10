@@ -29,6 +29,8 @@ class LayerManager(QObject):
         super().__init__()
         self.db_manager = database_manager
         self.api_client = api_client
+        self._forms_cache = {}
+        self._forms_cache_timestamp = 0
 
     def get_available_layers(self):
         layers = []
@@ -41,7 +43,12 @@ class LayerManager(QObject):
                 for layer in postgres_layers:
                     layer['source'] = 'postgres'
                     table_name = layer['table']
-                    layer['form_title'] = forms_map.get(table_name, 'Survey Form')
+                    
+                    form_title = forms_map.get(table_name)
+                    if not form_title:
+                        form_title = self._extract_title_from_table_name(table_name)
+                    
+                    layer['form_title'] = form_title
                     layer['display_name'] = f"PostgreSQL: {layer['schema']}.{layer['table']} ({layer['geom_type']})"
                     layers.append(layer)
             except Exception as e:
@@ -52,6 +59,9 @@ class LayerManager(QObject):
                 free_responses = self.api_client.get_free_responses()
                 forms_map_free = self._get_forms_map_free()
                 if free_responses:
+                    form_titles = list(forms_map_free.keys())
+                    title = form_titles[0] if form_titles else 'Free Plan Forms'
+                    
                     free_layer = {
                         'schema': 'hosting',
                         'table': 'responses_free',
@@ -59,18 +69,11 @@ class LayerManager(QObject):
                         'geom_type': 'POINT',
                         'full_name': 'hosting.responses_free',
                         'source': 'hosting',
-                        'form_title': 'Free Plan Forms',
+                        'form_title': title,
                         'display_name': f'ArcGeek Hosting: Free Plan Responses ({len(free_responses)} records)',
                         'count': len(free_responses)
                     }
                     layers.append(free_layer)
-                
-                for form_title, table_name in forms_map_free.items():
-                    if table_name == 'responses_free':
-                        for layer in layers:
-                            if layer.get('source') == 'hosting' and layer.get('table') == 'responses_free':
-                                layer['form_title'] = form_title
-                                break
             except Exception as e:
                 print(f"Error getting hosting layers: {e}")
         
@@ -81,11 +84,23 @@ class LayerManager(QObject):
         forms_map = {}
         if self.api_client.is_authenticated:
             try:
-                user_forms = self.api_client.get_user_forms_sync()
-                for form in user_forms:
-                    table_name = form.get('table_name', '')
-                    if table_name and table_name != 'responses_free':
-                        forms_map[table_name] = form.get('title', 'Unknown Form')
+                import time
+                current_time = time.time()
+                
+                if current_time - self._forms_cache_timestamp > 300:
+                    self._forms_cache.clear()
+                    self._forms_cache_timestamp = current_time
+                
+                if not self._forms_cache:
+                    user_forms = self._get_user_forms_sync()
+                    for form in user_forms:
+                        table_name = form.get('table_name', '')
+                        form_title = form.get('title', 'Unknown Form')
+                        if table_name and table_name != 'responses_free':
+                            self._forms_cache[table_name] = form_title
+                
+                forms_map = self._forms_cache.copy()
+                
             except Exception as e:
                 print(f"Error getting forms map: {e}")
         return forms_map
@@ -94,7 +109,7 @@ class LayerManager(QObject):
         forms_map = {}
         if self.api_client.is_authenticated:
             try:
-                user_forms = self.api_client.get_user_forms_sync()
+                user_forms = self._get_user_forms_sync()
                 for form in user_forms:
                     table_name = form.get('table_name', '')
                     form_title = form.get('title', 'Unknown Form')
@@ -103,6 +118,22 @@ class LayerManager(QObject):
             except Exception as e:
                 print(f"Error getting free forms map: {e}")
         return forms_map
+
+    def _get_user_forms_sync(self):
+        try:
+            if hasattr(self.api_client, 'get_user_forms_sync'):
+                return self.api_client.get_user_forms_sync()
+            else:
+                return self.api_client.get_user_forms()
+        except Exception as e:
+            print(f"Error in _get_user_forms_sync: {e}")
+            return []
+
+    def _extract_title_from_table_name(self, table_name):
+        if table_name.startswith('survey_arcgeek_'):
+            number_part = table_name.replace('survey_arcgeek_', '')
+            return f"Survey {number_part}"
+        return table_name.replace('_', ' ').title()
 
     def add_layer_to_qgis(self, layer_info):
         if layer_info['source'] == 'postgres':
@@ -251,7 +282,10 @@ class LayerManager(QObject):
             for layer in postgres_surveys:
                 layer['source'] = 'postgres'
                 table_name = layer['table']
-                layer['form_title'] = forms_map.get(table_name, 'Survey Form')
+                form_title = forms_map.get(table_name)
+                if not form_title:
+                    form_title = self._extract_title_from_table_name(table_name)
+                layer['form_title'] = form_title
                 survey_layers.append(layer)
         
         if self.api_client.is_authenticated:
@@ -379,7 +413,10 @@ class LayerManager(QObject):
             for layer in postgres_layers:
                 layer['source'] = 'postgres'
                 table_name = layer['table']
-                layer['form_title'] = forms_map.get(table_name, 'Survey Form')
+                form_title = forms_map.get(table_name)
+                if not form_title:
+                    form_title = self._extract_title_from_table_name(table_name)
+                layer['form_title'] = form_title
                 all_layers.append(layer)
         
         if self.api_client.is_authenticated:

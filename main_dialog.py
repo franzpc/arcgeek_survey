@@ -46,63 +46,35 @@ try:
     from .database_manager import DatabaseManager
     from .form_builder import FormBuilder
     from .layer_manager import LayerManager
+    from .ui_components import UIComponents, OptionsDialog
 except ImportError as e:
     print(f"Error importing plugin modules: {e}")
     raise
-
-def get_qt_enum(enum_name):
-    try:
-        if QT6_MODE:
-            if enum_name == 'Horizontal':
-                return Qt.Orientation.Horizontal
-            elif enum_name == 'Password':
-                return QLineEdit.EchoMode.Password
-            elif enum_name == 'Stretch':
-                return QHeaderView.ResizeMode.Stretch
-            elif enum_name == 'ResizeToContents':
-                return QHeaderView.ResizeMode.ResizeToContents
-        else:
-            if enum_name == 'Horizontal':
-                return Qt.Horizontal
-            elif enum_name == 'Password':
-                return QLineEdit.Password
-            elif enum_name == 'Stretch':
-                return QHeaderView.Stretch
-            elif enum_name == 'ResizeToContents':
-                return QHeaderView.ResizeToContents
-    except:
-        if enum_name == 'Horizontal':
-            return 1
-        elif enum_name == 'Password':
-            return 2
-        elif enum_name == 'Stretch':
-            return 1
-        elif enum_name == 'ResizeToContents':
-            return 3
-    return None
 
 class ArcGeekDialog(QDialog):
     def __init__(self, plugin):
         super().__init__()
         self.plugin = plugin
         self.setWindowTitle("ArcGeek Survey")
-        self.setMinimumSize(800, 600)
+        self.setMinimumSize(1000, 700)
         
         self.api_client = ArcGeekAPIClient()
         self.db_manager = DatabaseManager()
         self.form_builder = FormBuilder()
         self.layer_manager = LayerManager(self.db_manager, self.api_client)
+        self.ui_components = UIComponents(self)
         
         self.current_forms = []
         self.user_config = None
         self.available_layers = []
         self.selected_form = None
         self.server_message = None
+        self.field_options = {}
         
         self.setup_ui()
         self.connect_signals()
         self.load_settings()
-        self.apply_styles()
+        self.ui_components.apply_styles(self)
 
     def tr(self, text):
         return QCoreApplication.translate('ArcGeekSurvey', text)
@@ -128,13 +100,26 @@ class ArcGeekDialog(QDialog):
         normalized = re.sub(r'_+', '_', normalized)
         normalized = normalized.strip('_')
         
-        if normalized and normalized[0].isdigit():
+        reserved_words = [
+            'select', 'insert', 'update', 'delete', 'from', 'where', 'join', 'inner', 'outer', 'left', 'right',
+            'on', 'as', 'table', 'column', 'index', 'primary', 'foreign', 'key', 'constraint', 'alter',
+            'create', 'drop', 'database', 'schema', 'view', 'trigger', 'function', 'procedure', 'begin',
+            'end', 'if', 'then', 'else', 'case', 'when', 'group', 'order', 'by', 'having', 'limit',
+            'offset', 'union', 'intersect', 'except', 'exists', 'in', 'not', 'and', 'or', 'like',
+            'between', 'is', 'null', 'true', 'false', 'distinct', 'all', 'any', 'some', 'count',
+            'sum', 'avg', 'min', 'max', 'user', 'role', 'grant', 'revoke', 'commit', 'rollback'
+        ]
+        
+        if normalized in reserved_words:
+            normalized = 'field_' + normalized
+        
+        if not normalized or normalized[0].isdigit():
             normalized = 'field_' + normalized
         
         if not normalized:
             normalized = 'campo'
         
-        return normalized
+        return normalized[:15]
 
     def generate_unique_field_name(self, display_name, existing_names):
         base_name = self.normalize_field_name(display_name)
@@ -143,10 +128,22 @@ class ArcGeekDialog(QDialog):
             return base_name
         
         counter = 1
-        while f"{base_name}_{counter}" in existing_names:
-            counter += 1
+        max_base_length = 13
+        truncated_base = base_name[:max_base_length]
         
-        return f"{base_name}_{counter}"
+        while f"{truncated_base}_{counter}" in existing_names:
+            counter += 1
+            if len(f"{truncated_base}_{counter}") > 15:
+                max_base_length -= 1
+                truncated_base = base_name[:max_base_length]
+                counter = 1
+        
+        return f"{truncated_base}_{counter}"[:15]
+
+    def truncate_text(self, text, max_length=50):
+        if len(text) <= max_length:
+            return text
+        return text[:max_length-3] + "..."
 
     def setup_ui(self):
         layout = QVBoxLayout(self)
@@ -173,9 +170,9 @@ class ArcGeekDialog(QDialog):
         self.tabs.setTabPosition(QTabWidget.TabPosition.North)
         layout.addWidget(self.tabs)
         
-        self.setup_config_tab()
-        self.setup_forms_tab()
-        self.setup_layers_tab()
+        self.tabs.addTab(self.ui_components.create_config_tab(), self.tr("Connection"))
+        self.tabs.addTab(self.ui_components.create_forms_tab(), self.tr("Forms"))
+        self.tabs.addTab(self.ui_components.create_layers_tab(), self.tr("Layers"))
         
         button_layout = QHBoxLayout()
         self.about_btn = QPushButton(self.tr("About"))
@@ -189,496 +186,6 @@ class ArcGeekDialog(QDialog):
         self.close_btn.setDefault(True)
         button_layout.addWidget(self.close_btn)
         layout.addLayout(button_layout)
-
-    def setup_config_tab(self):
-        tab = QWidget()
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setWidget(tab)
-        
-        layout = QVBoxLayout(tab)
-        layout.setSpacing(20)
-        
-        login_group = QGroupBox(self.tr("ArcGeek Survey Connection"))
-        login_layout = QFormLayout(login_group)
-        login_layout.setSpacing(12)
-        
-        self.server_url_edit = QLineEdit("https://acolita.com/survey")
-        self.server_url_edit.setVisible(False)
-        
-        self.email_edit = QLineEdit()
-        self.email_edit.setPlaceholderText(self.tr("Enter your email"))
-        login_layout.addRow(self.tr("Email:"), self.email_edit)
-        
-        self.password_edit = QLineEdit()
-        self.password_edit.setEchoMode(get_qt_enum('Password'))
-        self.password_edit.setPlaceholderText(self.tr("Enter your password"))
-        login_layout.addRow(self.tr("Password:"), self.password_edit)
-        
-        login_buttons = QHBoxLayout()
-        self.login_btn = QPushButton(self.tr("Connect"))
-        self.login_btn.clicked.connect(self.on_login)
-        self.login_btn.setMinimumHeight(35)
-        login_buttons.addWidget(self.login_btn)
-        
-        self.remember_me_check = QCheckBox(self.tr("Remember credentials"))
-        self.remember_me_check.setChecked(True)
-        login_buttons.addWidget(self.remember_me_check)
-        login_buttons.addStretch()
-        
-        login_layout.addRow("", login_buttons)
-        
-        self.login_status = QLabel(self.tr("Not connected"))
-        self.login_status.setObjectName("loginStatus")
-        login_layout.addRow(self.tr("Status:"), self.login_status)
-        
-        links_layout = QHBoxLayout()
-        self.register_link = QLabel(f'<a href="#" style="color: #3498db;">{self.tr("Create Account")}</a>')
-        self.register_link.setOpenExternalLinks(False)
-        self.register_link.linkActivated.connect(self.on_register_link_clicked)
-        links_layout.addWidget(self.register_link)
-        
-        self.forgot_link = QLabel(f'<a href="https://acolita.com/survey/auth/forgot-password.php" style="color: #3498db;">{self.tr("Forgot Password?")}</a>')
-        self.forgot_link.setOpenExternalLinks(True)
-        links_layout.addWidget(self.forgot_link)
-        links_layout.addStretch()
-        
-        login_layout.addRow("", links_layout)
-        layout.addWidget(login_group)
-        
-        info_layout = QHBoxLayout()
-        
-        user_group = QGroupBox(self.tr("User Information"))
-        user_layout = QFormLayout(user_group)
-        
-        self.user_name_label = QLabel(self.tr("Not logged in"))
-        user_layout.addRow(self.tr("Name:"), self.user_name_label)
-        
-        self.user_plan_label = QLabel(self.tr("Unknown"))
-        user_layout.addRow(self.tr("Plan:"), self.user_plan_label)
-        
-        self.user_storage_label = QLabel(self.tr("Not configured"))
-        user_layout.addRow(self.tr("Storage:"), self.user_storage_label)
-        
-        info_layout.addWidget(user_group)
-        
-        db_group = QGroupBox(self.tr("PostgreSQL Database"))
-        db_layout = QFormLayout(db_group)
-        
-        self.postgres_status_label = QLabel(self.tr("Not configured"))
-        self.postgres_status_label.setObjectName("postgresStatus")
-        db_layout.addRow(self.tr("Status:"), self.postgres_status_label)
-        
-        self.postgres_config_label = QLabel(self.tr("None"))
-        db_layout.addRow(self.tr("Configuration:"), self.postgres_config_label)
-        
-        db_buttons = QHBoxLayout()
-        self.test_postgres_btn = QPushButton(self.tr("Test Connection"))
-        self.test_postgres_btn.clicked.connect(self.on_test_postgres)
-        self.test_postgres_btn.setEnabled(False)
-        db_buttons.addWidget(self.test_postgres_btn)
-        
-        self.configure_web_btn = QPushButton(self.tr("Configure Online"))
-        self.configure_web_btn.clicked.connect(self.on_configure_web)
-        db_buttons.addWidget(self.configure_web_btn)
-        
-        db_layout.addRow("", db_buttons)
-        
-        info_layout.addWidget(db_group)
-        layout.addLayout(info_layout)
-        
-        message_group = QGroupBox(self.tr("Server Message"))
-        message_layout = QVBoxLayout(message_group)
-        
-        self.server_message_label = QLabel(self.tr("No messages"))
-        self.server_message_label.setObjectName("serverMessage")
-        self.server_message_label.setWordWrap(True)
-        self.server_message_label.setStyleSheet("color: #6c757d; font-style: italic; padding: 5px;")
-        message_layout.addWidget(self.server_message_label)
-        
-        layout.addWidget(message_group)
-        
-        layout.addStretch()
-        self.tabs.addTab(scroll, self.tr("Connection"))
-
-    def setup_forms_tab(self):
-        tab = QWidget()
-        layout = QVBoxLayout(tab)
-        layout.setSpacing(15)
-        
-        splitter = QSplitter()
-        splitter.setOrientation(get_qt_enum('Horizontal'))
-        
-        left_widget = QWidget()
-        left_layout = QVBoxLayout(left_widget)
-        left_layout.setSpacing(15)
-        
-        form_info_group = QGroupBox(self.tr("Create New Form"))
-        form_info_layout = QFormLayout(form_info_group)
-        form_info_layout.setSpacing(10)
-        
-        self.form_title_edit = QLineEdit()
-        self.form_title_edit.setPlaceholderText(self.tr("Enter form title"))
-        form_info_layout.addRow(self.tr("Title:"), self.form_title_edit)
-        
-        self.form_description_edit = QTextEdit()
-        self.form_description_edit.setMaximumHeight(60)
-        self.form_description_edit.setPlaceholderText(self.tr("Optional description"))
-        form_info_layout.addRow(self.tr("Description:"), self.form_description_edit)
-        
-        left_layout.addWidget(form_info_group)
-        
-        fields_group = QGroupBox(self.tr("Form Fields"))
-        fields_layout = QVBoxLayout(fields_group)
-        
-        fields_header = QHBoxLayout()
-        self.fields_info_label = QLabel(self.tr("Fields: 0/15"))
-        self.fields_info_label.setObjectName("fieldsInfo")
-        fields_header.addWidget(self.fields_info_label)
-        fields_header.addStretch()
-        
-        self.add_field_btn = QPushButton(self.tr("Add Field"))
-        self.add_field_btn.clicked.connect(self.on_add_field)
-        self.add_field_btn.setIcon(QIcon(":/images/themes/default/symbologyAdd.svg"))
-        fields_header.addWidget(self.add_field_btn)
-        
-        self.remove_field_btn = QPushButton(self.tr("Remove"))
-        self.remove_field_btn.clicked.connect(self.on_remove_field)
-        self.remove_field_btn.setIcon(QIcon(":/images/themes/default/symbologyRemove.svg"))
-        fields_header.addWidget(self.remove_field_btn)
-        
-        fields_layout.addLayout(fields_header)
-        
-        self.fields_table = QTableWidget(0, 4)
-        self.fields_table.setHorizontalHeaderLabels([
-            self.tr("Display Name"), 
-            self.tr("Field Name"),
-            self.tr("Type"), 
-            self.tr("Required")
-        ])
-        
-        header = self.fields_table.horizontalHeader()
-        header.setStretchLastSection(False)
-        if hasattr(header, 'setSectionResizeMode'):
-            header.setSectionResizeMode(0, get_qt_enum('Stretch'))
-            header.setSectionResizeMode(1, get_qt_enum('Stretch'))
-            header.setSectionResizeMode(2, get_qt_enum('ResizeToContents'))
-            header.setSectionResizeMode(3, get_qt_enum('ResizeToContents'))
-        else:
-            header.setResizeMode(0, get_qt_enum('Stretch'))
-            header.setResizeMode(1, get_qt_enum('Stretch'))
-            header.setResizeMode(2, get_qt_enum('ResizeToContents'))
-            header.setResizeMode(3, get_qt_enum('ResizeToContents'))
-        
-        self.fields_table.setAlternatingRowColors(True)
-        self.fields_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self.fields_table.itemChanged.connect(self.on_fields_table_item_changed)
-        fields_layout.addWidget(self.fields_table)
-        
-        left_layout.addWidget(fields_group)
-        
-        create_layout = QHBoxLayout()
-        self.create_form_btn = QPushButton(self.tr("Create Form"))
-        self.create_form_btn.clicked.connect(self.on_create_form)
-        self.create_form_btn.setEnabled(False)
-        self.create_form_btn.setMinimumHeight(40)
-        self.create_form_btn.setObjectName("createFormBtn")
-        create_layout.addWidget(self.create_form_btn)
-        
-        self.form_creation_status = QLabel(self.tr("Login required"))
-        self.form_creation_status.setObjectName("creationStatus")
-        left_layout.addWidget(self.form_creation_status)
-        left_layout.addLayout(create_layout)
-        
-        splitter.addWidget(left_widget)
-        
-        right_widget = QWidget()
-        right_layout = QVBoxLayout(right_widget)
-        right_layout.setSpacing(15)
-        
-        forms_group = QGroupBox(self.tr("Your Forms"))
-        forms_layout = QVBoxLayout(forms_group)
-        
-        forms_header = QHBoxLayout()
-        self.refresh_forms_btn = QPushButton(self.tr("Refresh"))
-        self.refresh_forms_btn.clicked.connect(self.on_refresh_forms)
-        self.refresh_forms_btn.setEnabled(False)
-        self.refresh_forms_btn.setIcon(QIcon(":/images/themes/default/mActionRefresh.svg"))
-        forms_header.addWidget(self.refresh_forms_btn)
-        
-        self.manage_forms_btn = QPushButton(self.tr("Manage Online"))
-        self.manage_forms_btn.clicked.connect(self.on_manage_forms_web)
-        self.manage_forms_btn.setEnabled(False)
-        forms_header.addWidget(self.manage_forms_btn)
-        
-        forms_header.addStretch()
-        forms_layout.addLayout(forms_header)
-        
-        self.forms_list = QListWidget()
-        self.forms_list.setAlternatingRowColors(True)
-        self.forms_list.currentItemChanged.connect(self.on_form_selection_changed)
-        forms_layout.addWidget(self.forms_list)
-        
-        form_details_group = QGroupBox(self.tr("Form Details"))
-        details_layout = QVBoxLayout(form_details_group)
-        
-        self.form_details = QTextBrowser()
-        self.form_details.setMaximumHeight(120)
-        self.form_details.setHtml(f"<p><i>{self.tr('Select a form to view details')}</i></p>")
-        details_layout.addWidget(self.form_details)
-        
-        form_actions = QHBoxLayout()
-        self.copy_url_btn = QPushButton(self.tr("Copy URL"))
-        self.copy_url_btn.clicked.connect(self.on_copy_form_url)
-        self.copy_url_btn.setEnabled(False)
-        form_actions.addWidget(self.copy_url_btn)
-        
-        self.open_form_btn = QPushButton(self.tr("Open in Browser"))
-        self.open_form_btn.clicked.connect(self.on_open_form_browser)
-        self.open_form_btn.setEnabled(False)
-        form_actions.addWidget(self.open_form_btn)
-        
-        form_actions.addStretch()
-        details_layout.addLayout(form_actions)
-        
-        forms_layout.addWidget(form_details_group)
-        right_layout.addWidget(forms_group)
-        
-        splitter.addWidget(right_widget)
-        splitter.setSizes([700, 300])
-        
-        layout.addWidget(splitter)
-        self.tabs.addTab(tab, self.tr("Forms"))
-
-    def setup_layers_tab(self):
-        tab = QWidget()
-        layout = QVBoxLayout(tab)
-        layout.setSpacing(15)
-        
-        controls_group = QGroupBox(self.tr("Layer Operations"))
-        controls_layout = QHBoxLayout(controls_group)
-        
-        self.refresh_layers_btn = QPushButton(self.tr("Refresh Layers"))
-        self.refresh_layers_btn.clicked.connect(self.on_refresh_layers)
-        self.refresh_layers_btn.setEnabled(False)
-        self.refresh_layers_btn.setIcon(QIcon(":/images/themes/default/mActionRefresh.svg"))
-        controls_layout.addWidget(self.refresh_layers_btn)
-        
-        self.add_selected_btn = QPushButton(self.tr("Add Selected"))
-        self.add_selected_btn.clicked.connect(self.on_add_selected_layers)
-        self.add_selected_btn.setEnabled(False)
-        self.add_selected_btn.setIcon(QIcon(":/images/themes/default/mActionAddLayer.svg"))
-        controls_layout.addWidget(self.add_selected_btn)
-        
-        self.add_all_survey_btn = QPushButton(self.tr("Add All Survey Layers"))
-        self.add_all_survey_btn.clicked.connect(self.on_add_all_survey_layers)
-        self.add_all_survey_btn.setEnabled(False)
-        controls_layout.addWidget(self.add_all_survey_btn)
-        
-        controls_layout.addStretch()
-        layout.addWidget(controls_group)
-        
-        self.layers_table = QTableWidget(0, 7)
-        self.layers_table.setHorizontalHeaderLabels([
-            "", 
-            self.tr("Form Title"),
-            self.tr("Source"), 
-            self.tr("Schema"), 
-            self.tr("Table"), 
-            self.tr("Geometry"), 
-            self.tr("Type")
-        ])
-        
-        layers_header = self.layers_table.horizontalHeader()
-        layers_header.setStretchLastSection(True)
-        if hasattr(layers_header, 'setSectionResizeMode'):
-            layers_header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
-        else:
-            layers_header.setResizeMode(0, QHeaderView.Fixed)
-        self.layers_table.setColumnWidth(0, 30)
-        self.layers_table.setAlternatingRowColors(True)
-        layout.addWidget(self.layers_table)
-        
-        self.layers_status = QLabel(self.tr("Connect to ArcGeek Survey and/or PostgreSQL first"))
-        self.layers_status.setObjectName("layersStatus")
-        layout.addWidget(self.layers_status)
-        
-        self.tabs.addTab(tab, self.tr("Layers"))
-
-    def apply_styles(self):
-        self.setStyleSheet("""
-            QDialog {
-                background-color: #f8f9fa;
-            }
-            
-            QGroupBox {
-                font-weight: bold;
-                border: 2px solid #dee2e6;
-                border-radius: 8px;
-                margin-top: 1ex;
-                padding-top: 10px;
-                background-color: white;
-            }
-            
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                left: 10px;
-                padding: 0 5px 0 5px;
-                color: #495057;
-            }
-            
-            QPushButton {
-                background-color: #007bff;
-                border: none;
-                color: white;
-                padding: 8px 16px;
-                border-radius: 4px;
-                font-weight: 500;
-                min-width: 80px;
-            }
-            
-            QPushButton:hover {
-                background-color: #0056b3;
-            }
-            
-            QPushButton:pressed {
-                background-color: #004085;
-            }
-            
-            QPushButton:disabled {
-                background-color: #6c757d;
-                color: #dee2e6;
-            }
-            
-            QPushButton#createFormBtn {
-                background-color: #28a745;
-                font-size: 14px;
-                font-weight: bold;
-            }
-            
-            QPushButton#createFormBtn:hover {
-                background-color: #1e7e34;
-            }
-            
-            QLineEdit, QTextEdit, QComboBox {
-                border: 1px solid #ced4da;
-                border-radius: 4px;
-                padding: 8px;
-                background-color: white;
-            }
-            
-            QLineEdit:focus, QTextEdit:focus, QComboBox:focus {
-                border-color: #80bdff;
-                outline: 0;
-                box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
-            }
-            
-            QTableWidget {
-                background-color: white;
-                alternate-background-color: #f8f9fa;
-                selection-background-color: #e3f2fd;
-                gridline-color: #dee2e6;
-                border: 1px solid #dee2e6;
-                border-radius: 4px;
-            }
-            
-            QTableWidget::item:disabled {
-                background-color: #f8f9fa;
-                color: #6c757d;
-                font-style: italic;
-            }
-            
-            QListWidget {
-                background-color: white;
-                alternate-background-color: #f8f9fa;
-                selection-background-color: #e3f2fd;
-                border: 1px solid #dee2e6;
-                border-radius: 4px;
-                padding: 4px;
-            }
-            
-            QListWidget::item {
-                padding: 8px;
-                border-bottom: 1px solid #e9ecef;
-            }
-            
-            QListWidget::item:selected {
-                background-color: #e3f2fd;
-                color: #1976d2;
-            }
-            
-            QLabel#loginStatus[text="Connected"] {
-                color: #28a745;
-                font-weight: bold;
-            }
-            
-            QLabel#loginStatus[text*="Error"] {
-                color: #dc3545;
-            }
-            
-            QLabel#postgresStatus[text*="Connected"] {
-                color: #28a745;
-            }
-            
-            QLabel#postgresStatus[text*="Error"] {
-                color: #dc3545;
-            }
-            
-            QLabel#fieldsInfo {
-                font-weight: bold;
-                color: #495057;
-            }
-            
-            QLabel#creationStatus {
-                font-style: italic;
-                color: #6c757d;
-            }
-            
-            QLabel#layersStatus {
-                font-style: italic;
-                color: #6c757d;
-                padding: 10px;
-            }
-            
-            QLabel#serverMessage {
-                background-color: #f8f9fa;
-                border: 1px solid #e9ecef;
-                border-radius: 4px;
-                padding: 8px;
-                font-size: 12px;
-            }
-            
-            QTabWidget::pane {
-                border: 1px solid #dee2e6;
-                background-color: white;
-                border-radius: 4px;
-            }
-            
-            QTabBar::tab {
-                background-color: #e9ecef;
-                border: 1px solid #dee2e6;
-                padding: 8px 16px;
-                margin-right: 2px;
-                border-top-left-radius: 4px;
-                border-top-right-radius: 4px;
-            }
-            
-            QTabBar::tab:selected {
-                background-color: white;
-                border-bottom-color: white;
-            }
-            
-            QTabBar::tab:hover {
-                background-color: #f8f9fa;
-            }
-            
-            QTextBrowser {
-                background-color: #f8f9fa;
-                border: 1px solid #e9ecef;
-                border-radius: 4px;
-                padding: 10px;
-            }
-        """)
 
     def connect_signals(self):
         self.api_client.loginSuccess.connect(self.on_login_success)
@@ -1072,7 +579,6 @@ class ArcGeekDialog(QDialog):
         self.forms_list.clear()
         self.layers_table.setRowCount(0)
         self.selected_form = None
-        self.update_form_details()
         
         self.update_forms_ui_state()
         self.update_layers_ui_state()
@@ -1096,46 +602,109 @@ class ArcGeekDialog(QDialog):
         display_name_item = QTableWidgetItem("")
         self.fields_table.setItem(row, 0, display_name_item)
         
-        field_name_item = QTableWidgetItem("")
-        field_name_item.setFlags(field_name_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-        field_name_item.setBackground(QColor("#f8f9fa"))
-        self.fields_table.setItem(row, 1, field_name_item)
-        
         type_combo = QComboBox()
-        type_combo.addItems(["text", "email", "number", "textarea", "date", "url"])
+        type_combo.addItems(["text", "email", "number", "textarea", "date", "url", "select", "radio", "checkbox"])
         type_combo.setCurrentText("text")
-        self.fields_table.setCellWidget(row, 2, type_combo)
+        type_combo.currentTextChanged.connect(lambda: self.on_field_type_changed(row))
+        self.fields_table.setCellWidget(row, 1, type_combo)
+        
+        options_btn = QPushButton("-")
+        options_btn.setEnabled(False)
+        options_btn.clicked.connect(lambda: self.edit_field_options(row))
+        self.fields_table.setCellWidget(row, 2, options_btn)
         
         required_check = QCheckBox()
         required_check.setChecked(False)
         self.fields_table.setCellWidget(row, 3, required_check)
         
-        display_name_item.itemChanged = lambda: self.update_field_name(row)
+        delete_btn = QPushButton("🗑️")
+        delete_btn.setMaximumWidth(30)
+        delete_btn.clicked.connect(lambda: self.delete_field_row(row))
+        self.fields_table.setCellWidget(row, 4, delete_btn)
         
+        self.field_options[row] = []
         self.update_fields_info()
     
+    def on_field_type_changed(self, row):
+        type_combo = self.fields_table.cellWidget(row, 1)
+        options_btn = self.fields_table.cellWidget(row, 2)
+        
+        if type_combo and options_btn:
+            field_type = type_combo.currentText()
+            has_options = field_type in ['select', 'radio', 'checkbox']
+            
+            options_btn.setEnabled(has_options)
+            
+            if has_options:
+                options_count = len(self.field_options.get(row, []))
+                options_btn.setText(f"✓ {options_count}" if options_count > 0 else "Setup")
+            else:
+                options_btn.setText("-")
+                self.field_options[row] = []
+
+    def edit_field_options(self, row):
+        display_name_item = self.fields_table.item(row, 0)
+        if not display_name_item:
+            return
+        
+        field_name = display_name_item.text() or f"Field {row + 1}"
+        current_options = self.field_options.get(row, [])
+        
+        dialog = OptionsDialog(self, field_name, current_options)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            new_options = dialog.get_options()
+            self.field_options[row] = new_options
+            
+            options_btn = self.fields_table.cellWidget(row, 2)
+            if options_btn:
+                options_count = len(new_options)
+                options_btn.setText(f"✓ {options_count}" if options_count > 0 else "Setup")
+
+    def delete_field_row(self, row):
+        if row in self.field_options:
+            del self.field_options[row]
+        
+        new_options = {}
+        for old_row, options in self.field_options.items():
+            if old_row > row:
+                new_options[old_row - 1] = options
+            elif old_row < row:
+                new_options[old_row] = options
+        
+        self.field_options = new_options
+        self.fields_table.removeRow(row)
+        self.update_fields_info()
+        
+        for i in range(self.fields_table.rowCount()):
+            delete_btn = self.fields_table.cellWidget(i, 4)
+            if delete_btn:
+                delete_btn.clicked.disconnect()
+                delete_btn.clicked.connect(lambda checked, r=i: self.delete_field_row(r))
+            
+            type_combo = self.fields_table.cellWidget(i, 1)
+            if type_combo:
+                type_combo.currentTextChanged.disconnect()
+                type_combo.currentTextChanged.connect(lambda text, r=i: self.on_field_type_changed(r))
+            
+            options_btn = self.fields_table.cellWidget(i, 2)
+            if options_btn:
+                options_btn.clicked.disconnect()
+                options_btn.clicked.connect(lambda checked, r=i: self.edit_field_options(r))
+
     def update_field_name(self, row):
         try:
             display_name_item = self.fields_table.item(row, 0)
-            field_name_item = self.fields_table.item(row, 1)
             
-            if not display_name_item or not field_name_item:
+            if not display_name_item:
                 return
             
             display_name = display_name_item.text().strip()
             
             if display_name:
-                existing_names = []
-                for i in range(self.fields_table.rowCount()):
-                    if i != row:
-                        existing_field_item = self.fields_table.item(i, 1)
-                        if existing_field_item and existing_field_item.text():
-                            existing_names.append(existing_field_item.text())
-                
-                field_name = self.generate_unique_field_name(display_name, existing_names)
-                field_name_item.setText(field_name)
-            else:
-                field_name_item.setText("")
+                truncated_display = self.truncate_text(display_name, 50)
+                display_name_item.setToolTip(display_name)
+                if len(display_name) > 50:
+                    display_name_item.setText(truncated_display)
                 
         except Exception as e:
             print(f"Error updating field name: {e}")
@@ -1149,8 +718,7 @@ class ArcGeekDialog(QDialog):
     def on_remove_field(self):
         current_row = self.fields_table.currentRow()
         if current_row >= 0:
-            self.fields_table.removeRow(current_row)
-            self.update_fields_info()
+            self.delete_field_row(current_row)
 
     def update_fields_info(self):
         count = self.fields_table.rowCount()
@@ -1204,6 +772,10 @@ class ArcGeekDialog(QDialog):
                 return
             
             field_names.append(field['name'])
+            
+            if field['type'] in ['select', 'radio', 'checkbox'] and not field.get('options'):
+                QMessageBox.warning(self, self.tr("Error"), f"{self.tr('Field')} '{field['label']}' {self.tr('requires at least one option')}")
+                return
         
         plan = self.user_config.get('plan_type', 'free')
         can_use_postgres = self.api_client.can_use_postgres() and self.db_manager.is_connected()
@@ -1308,43 +880,14 @@ class ArcGeekDialog(QDialog):
         if current:
             form_data = current.data(Qt.ItemDataRole.UserRole)
             self.selected_form = form_data
-            self.update_form_details()
             self.copy_url_btn.setEnabled(True)
             self.open_form_btn.setEnabled(True)
+            self.view_results_btn.setEnabled(True)
         else:
             self.selected_form = None
-            self.update_form_details()
             self.copy_url_btn.setEnabled(False)
             self.open_form_btn.setEnabled(False)
-
-    def update_form_details(self):
-        if not self.selected_form:
-            self.form_details.setHtml(f"<p><i>{self.tr('Select a form to view details')}</i></p>")
-            return
-        
-        form = self.selected_form
-        storage_type_text = {
-            'admin_supabase': self.tr('Shared Database'),
-            'user_supabase': self.tr('Your Supabase'),
-            'user_postgres': self.tr('Your PostgreSQL')
-        }.get(form['storage_type'], form['storage_type'])
-        
-        details_html = f"""
-        <table style="width: 100%; font-size: 12px;">
-            <tr><td><b>{self.tr('Title')}:</b></td><td>{form['title']}</td></tr>
-            <tr><td><b>{self.tr('Code')}:</b></td><td>{form['form_code']}</td></tr>
-            <tr><td><b>{self.tr('Responses')}:</b></td><td>{form['response_count']}/{form['max_responses']}</td></tr>
-            <tr><td><b>{self.tr('Storage')}:</b></td><td>{storage_type_text}</td></tr>
-            <tr><td><b>{self.tr('Created')}:</b></td><td>{form['created_at'][:10]}</td></tr>
-        </table>
-        <br>
-        <p><b>{self.tr('Collection URL')}:</b></p>
-        <p style="background: #f8f9fa; padding: 8px; border: 1px solid #dee2e6; border-radius: 4px; font-family: monospace; font-size: 11px; word-break: break-all;">
-            {form['collection_url']}
-        </p>
-        """
-        
-        self.form_details.setHtml(details_html)
+            self.view_results_btn.setEnabled(False)
 
     @pyqtSlot()
     def on_manage_forms_web(self):
@@ -1383,6 +926,20 @@ class ArcGeekDialog(QDialog):
             webbrowser.open(url)
         except:
             QMessageBox.information(self, self.tr("Open Form"), f"{self.tr('Open this URL in your browser')}:\n{url}")
+
+    @pyqtSlot()
+    def on_view_results(self):
+        if not self.selected_form:
+            return
+        
+        form_code = self.selected_form['form_code']
+        url = f"{self.api_client.base_url}/public/share.php?code={form_code}"
+        
+        try:
+            import webbrowser
+            webbrowser.open(url)
+        except:
+            QMessageBox.information(self, self.tr("View Results"), f"{self.tr('Open this URL in your browser')}:\n{url}")
 
     @pyqtSlot()
     def on_refresh_layers(self):
@@ -1481,23 +1038,27 @@ class ArcGeekDialog(QDialog):
         
         for i in range(self.fields_table.rowCount()):
             display_name_item = self.fields_table.item(i, 0)
-            field_name_item = self.fields_table.item(i, 1)
-            type_combo = self.fields_table.cellWidget(i, 2)
+            type_combo = self.fields_table.cellWidget(i, 1)
             required_check = self.fields_table.cellWidget(i, 3)
             
             if not display_name_item or not display_name_item.text().strip():
-                continue
-            
-            if not field_name_item or not field_name_item.text().strip():
                 continue
                 
             if not type_combo or not required_check:
                 continue
             
             display_name = display_name_item.text().strip()
-            field_name = field_name_item.text().strip()
             field_type = type_combo.currentText()
             is_required = required_check.isChecked()
+            
+            existing_names = []
+            for j in range(i):
+                prev_display = self.fields_table.item(j, 0)
+                if prev_display and prev_display.text().strip():
+                    prev_field_name = self.generate_unique_field_name(prev_display.text().strip(), existing_names)
+                    existing_names.append(prev_field_name)
+            
+            field_name = self.generate_unique_field_name(display_name, existing_names)
             
             field = {
                 'name': field_name,
@@ -1505,6 +1066,10 @@ class ArcGeekDialog(QDialog):
                 'required': is_required,
                 'label': display_name
             }
+            
+            if field_type in ['select', 'radio', 'checkbox']:
+                field['options'] = self.field_options.get(i, [])
+            
             fields.append(field)
         
         return fields
@@ -1513,6 +1078,7 @@ class ArcGeekDialog(QDialog):
         self.form_title_edit.clear()
         self.form_description_edit.clear()
         self.fields_table.setRowCount(0)
+        self.field_options.clear()
         self.update_fields_info()
 
     def closeEvent(self, event):

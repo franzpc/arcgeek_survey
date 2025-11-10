@@ -24,8 +24,8 @@ class PluginTokenManager:
         self.cache_duration = 1800
         self.lock = threading.Lock()
         
-        self.supabase_url = '#'
-        self.supabase_key = '#'
+        self.supabase_url = 'https://neixcsnkwtgdxkucfcnb.supabase.co'
+        self.supabase_key = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5laXhjc25rd3RnZHhrdWNmY25iIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDk1NzQ0OTQsImV4cCI6MjA2NTE1MDQ5NH0.OLcE9XYvYL6vzuXqcgp3dMowDZblvQo8qR21Cj39nyY'
     
     def fetch_plugin_token(self) -> Optional[str]:
         if not requests:
@@ -274,6 +274,28 @@ class ArcGeekAPIClient(QObject):
                 return []
                 
         except Exception:
+            return []
+
+    def get_user_forms_sync(self):
+        if not self.is_authenticated or not self.session:
+            return []
+        
+        try:
+            response = self._make_request(
+                'GET',
+                'public/api/user-forms.php',
+                params={'user_id': self.user_data.get('user_id', '')},
+                timeout=15
+            )
+            
+            if response and response.status_code == 200:
+                forms = response.json()
+                return forms
+            else:
+                return []
+                
+        except Exception as e:
+            print(f"Error in get_user_forms_sync: {e}")
             return []
 
     def get_free_responses(self, limit=1000, offset=0):
