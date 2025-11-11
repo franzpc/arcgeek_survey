@@ -25,7 +25,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $language = $_POST['language'] ?? $lang;
     $recaptcha_response = $_POST['g-recaptcha-response'] ?? '';
     $ip = get_client_ip();
-    
+
     if (empty($name) || empty($email) || empty($password) || empty($confirm_password)) {
         $error = $strings['all_fields_required'];
     } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
@@ -36,26 +36,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $error = $strings['password_min_6'];
     } elseif (!check_registration_attempts($ip)) {
         $error = $strings['too_many_attempts'];
-    } elseif (empty($recaptcha_response) || !validate_recaptcha_v3($recaptcha_response, 'register')) {
+    } elseif (empty($recaptcha_response) || !validate_recaptcha($recaptcha_response, 'register')) {
         $error = $strings['invalid_captcha'];
     } else {
         try {
             $stmt = $pdo->prepare("SELECT id FROM users WHERE email = ?");
             $stmt->execute([$email]);
-            
+
             if ($stmt->fetch()) {
                 $error = $strings['email_exists'];
             } else {
                 $hashed_password = password_hash($password, PASSWORD_DEFAULT);
                 $verification_token = generate_verification_token();
-                
+
                 $stmt = $pdo->prepare("INSERT INTO users (name, email, password, language, plan_type, is_active, email_verified) VALUES (?, ?, ?, ?, ?, 0, 0)");
                 if ($stmt->execute([$name, $email, $hashed_password, $language, PLAN_FREE])) {
                     $user_id = $pdo->lastInsertId();
-                    
+
                     $stmt = $pdo->prepare("INSERT INTO email_verifications (user_id, token) VALUES (?, ?)");
                     $stmt->execute([$user_id, $verification_token]);
-                    
+
                     if (send_verification_email($email, $name, $verification_token, $language)) {
                         $success = $strings['registration_success_verify'];
                     } else {
@@ -72,157 +72,161 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-function validate_recaptcha_v3($response, $action = 'register') {
-    $secret_key = '6Lec8YIrAAAAACU9v1xZgNSn0lTEp8EWfLmwTQfw';
-    
-    $data = [
-        'secret' => $secret_key,
-        'response' => $response,
-        'remoteip' => get_client_ip()
-    ];
-    
-    $ch = curl_init();
-    curl_setopt($ch, CURLOPT_URL, 'https://www.google.com/recaptcha/api/siteverify');
-    curl_setopt($ch, CURLOPT_POST, true);
-    curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($data));
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_TIMEOUT, 10);
-    
-    $response_data = curl_exec($ch);
-    $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    curl_close($ch);
-    
-    if ($http_code === 200) {
-        $result = json_decode($response_data, true);
-        $score = $result['score'] ?? 0;
-        $success = $result['success'] ?? false;
-        $action_match = ($result['action'] ?? '') === $action;
-        
-        return $success && $action_match && $score >= 0.5;
-    }
-    
-    return false;
+$recaptcha_config = get_recaptcha_config();
+$page_title = $strings['register'];
+$navbar_class = "bg-success";
+$no_margin = true;
+
+if ($recaptcha_config['enabled'] && !empty($recaptcha_config['site_key'])) {
+    $additional_head_content = '<script src="https://www.google.com/recaptcha/api.js?render=' . htmlspecialchars($recaptcha_config['site_key']) . '"></script>';
 }
+
+include '../includes/header.php';
 ?>
-<!DOCTYPE html>
-<html lang="<?php echo $lang; ?>">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?php echo $strings['register']; ?> - ArcGeek Survey</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
-    <link href="../css/styles.css" rel="stylesheet">
-    <script src="https://www.google.com/recaptcha/api.js?render=6Lec8YIrAAAAAGIp5N1aNkt5cL4_2nw7I_bboJLQ"></script>
-</head>
-<body>
-    <div class="header-brand">
-        <div class="header-content">
-            <h1><i class="fas fa-map-marked-alt"></i> ArcGeek Survey</h1>
-            <div class="header-lang">
-                <a href="?lang=en" class="<?php echo $lang === 'en' ? 'active' : ''; ?>">EN</a>
-                <a href="?lang=es" class="<?php echo $lang === 'es' ? 'active' : ''; ?>">ES</a>
-            </div>
-        </div>
-    </div>
 
-    <div class="auth-container">
-        <div class="container">
-            <div class="row justify-content-center">
-                <div class="col-md-6">
-                    <div class="auth-card fade-in">
-                        <div class="auth-card-header">
-                            <h3><i class="fas fa-user-plus"></i> <?php echo $strings['register']; ?></h3>
-                            <p><?php echo $strings['create_your_account'] ?? 'Create your account'; ?></p>
-                        </div>
-                        <div class="auth-card-body">
-                            <?php if ($error): ?>
-                                <div class="alert alert-danger">
-                                    <i class="fas fa-exclamation-triangle"></i> <?php echo $error; ?>
-                                </div>
-                            <?php endif; ?>
+<style>
+.auth-container {
+    min-height: calc(100vh - 200px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 40px 0;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+}
+.auth-card {
+    background: white;
+    border-radius: 15px;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+    padding: 40px;
+    max-width: 500px;
+    width: 100%;
+}
+.auth-card-header {
+    text-align: center;
+    margin-bottom: 30px;
+}
+.auth-card-header i {
+    font-size: 3rem;
+    color: #667eea;
+    margin-bottom: 15px;
+}
+.form-control:focus {
+    border-color: #667eea;
+    box-shadow: 0 0 0 0.2rem rgba(102, 126, 234, 0.25);
+}
+.btn-primary {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border: none;
+    padding: 12px;
+    font-weight: 600;
+}
+.btn-primary:hover {
+    opacity: 0.9;
+}
+</style>
 
-                            <?php if ($success): ?>
-                                <div class="alert alert-success">
-                                    <i class="fas fa-check-circle"></i> <?php echo $success; ?>
-                                    <div class="mt-3">
-                                        <a href="login.php?lang=<?php echo $lang; ?>" class="btn btn-primary"><?php echo $strings['login_now']; ?></a>
-                                    </div>
-                                </div>
-                            <?php else: ?>
-                                <form method="POST" id="registerForm">
-                                    <div class="mb-3">
-                                        <label class="form-label"><i class="fas fa-user"></i> <?php echo $strings['name']; ?></label>
-                                        <input type="text" name="name" class="form-control" value="<?php echo htmlspecialchars($_POST['name'] ?? ''); ?>" required>
-                                    </div>
-
-                                    <div class="mb-3">
-                                        <label class="form-label"><i class="fas fa-envelope"></i> <?php echo $strings['email']; ?></label>
-                                        <input type="email" name="email" class="form-control" value="<?php echo htmlspecialchars($_POST['email'] ?? ''); ?>" required>
-                                    </div>
-
-                                    <div class="mb-3">
-                                        <label class="form-label"><i class="fas fa-globe"></i> <?php echo $strings['language']; ?></label>
-                                        <select name="language" class="form-select">
-                                            <option value="en" <?php echo $lang === 'en' ? 'selected' : ''; ?>>English</option>
-                                            <option value="es" <?php echo $lang === 'es' ? 'selected' : ''; ?>>Español</option>
-                                        </select>
-                                    </div>
-
-                                    <div class="row">
-                                        <div class="col-md-6">
-                                            <div class="mb-3">
-                                                <label class="form-label"><i class="fas fa-lock"></i> <?php echo $strings['password']; ?></label>
-                                                <input type="password" name="password" class="form-control" required>
-                                            </div>
-                                        </div>
-                                        <div class="col-md-6">
-                                            <div class="mb-3">
-                                                <label class="form-label"><i class="fas fa-lock"></i> <?php echo $strings['confirm_password']; ?></label>
-                                                <input type="password" name="confirm_password" class="form-control" required>
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    <div class="plan-info">
-                                        <h6><?php echo $strings['free_plan']; ?></h6>
-                                        <ul>
-                                            <li>1 <?php echo $strings['form']; ?></li>
-                                            <li>5 <?php echo $strings['fields']; ?></li>
-                                            <li>40 <?php echo $strings['responses']; ?></li>
-                                        </ul>
-                                    </div>
-
-                                    <input type="hidden" name="g-recaptcha-response" id="g-recaptcha-response">
-
-                                    <div class="d-grid">
-                                        <button type="submit" class="btn btn-primary btn-lg">
-                                            <i class="fas fa-user-plus"></i> <?php echo $strings['create_account']; ?>
-                                        </button>
-                                    </div>
-                                </form>
-
-                                <div class="text-links">
-                                    <a href="login.php?lang=<?php echo $lang; ?>"><?php echo $strings['have_account']; ?></a>
-                                </div>
-                            <?php endif; ?>
-                        </div>
+<div class="auth-container">
+    <div class="container">
+        <div class="row justify-content-center">
+            <div class="col-md-7 col-lg-6">
+                <div class="auth-card">
+                    <div class="auth-card-header">
+                        <i class="fas fa-user-plus"></i>
+                        <h2><?php echo $strings['register']; ?></h2>
+                        <p class="text-muted"><?php echo $strings['create_account']; ?></p>
                     </div>
+
+                    <?php if ($error): ?>
+                        <div class="alert alert-danger alert-dismissible fade show">
+                            <i class="fas fa-exclamation-triangle"></i> <?php echo htmlspecialchars($error); ?>
+                            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                        </div>
+                    <?php endif; ?>
+
+                    <?php if ($success): ?>
+                        <div class="alert alert-success alert-dismissible fade show">
+                            <i class="fas fa-check-circle"></i> <?php echo htmlspecialchars($success); ?>
+                            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                        </div>
+                    <?php endif; ?>
+
+                    <form method="POST" id="registerForm">
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label"><i class="fas fa-user"></i> <?php echo $strings['name']; ?></label>
+                                <input type="text" name="name" class="form-control" required value="<?php echo htmlspecialchars($_POST['name'] ?? ''); ?>">
+                            </div>
+
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label"><i class="fas fa-envelope"></i> <?php echo $strings['email']; ?></label>
+                                <input type="email" name="email" class="form-control" required value="<?php echo htmlspecialchars($_POST['email'] ?? ''); ?>">
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label"><i class="fas fa-lock"></i> <?php echo $strings['password']; ?></label>
+                                <input type="password" name="password" class="form-control" required minlength="6">
+                                <small class="text-muted"><?php echo $strings['password_min_6']; ?></small>
+                            </div>
+
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label"><i class="fas fa-lock"></i> <?php echo $strings['confirm_password']; ?></label>
+                                <input type="password" name="confirm_password" class="form-control" required minlength="6">
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label"><i class="fas fa-language"></i> <?php echo $strings['language']; ?></label>
+                            <select name="language" class="form-select">
+                                <option value="en" <?php echo $lang === 'en' ? 'selected' : ''; ?>>English</option>
+                                <option value="es" <?php echo $lang === 'es' ? 'selected' : ''; ?>>Español</option>
+                            </select>
+                        </div>
+
+                        <input type="hidden" name="g-recaptcha-response" id="g-recaptcha-response">
+
+                        <button type="submit" class="btn btn-primary w-100">
+                            <i class="fas fa-user-plus"></i> <?php echo $strings['register']; ?>
+                        </button>
+                    </form>
+
+                    <hr>
+
+                    <div class="text-center">
+                        <p class="mb-2"><?php echo $strings['already_have_account']; ?></p>
+                        <a href="login.php?lang=<?php echo $lang; ?>" class="btn btn-outline-primary">
+                            <i class="fas fa-sign-in-alt"></i> <?php echo $strings['login']; ?>
+                        </a>
+                    </div>
+                </div>
+
+                <div class="text-center mt-4">
+                    <a href="https://github.com/franzpc/arcgeek_survey" target="_blank" class="text-white text-decoration-none">
+                        <i class="fab fa-github"></i> Open Source Project
+                    </a>
                 </div>
             </div>
         </div>
     </div>
+</div>
 
+<?php
+if ($recaptcha_config['enabled'] && !empty($recaptcha_config['site_key'])) {
+    $additional_footer_scripts = "
     <script>
         grecaptcha.ready(function() {
             document.getElementById('registerForm').addEventListener('submit', function(e) {
                 e.preventDefault();
-                grecaptcha.execute('6Lec8YIrAAAAAGIp5N1aNkt5cL4_2nw7I_bboJLQ', {action: 'register'}).then(function(token) {
+                grecaptcha.execute('" . htmlspecialchars($recaptcha_config['site_key']) . "', {action: 'register'}).then(function(token) {
                     document.getElementById('g-recaptcha-response').value = token;
                     document.getElementById('registerForm').submit();
                 });
             });
         });
     </script>
-</body>
-</html>
+    ";
+}
+
+include '../includes/footer.php';
+?>

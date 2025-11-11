@@ -2,7 +2,6 @@
 define('ARCGEEK_SURVEY', true);
 session_start();
 require_once '../config/database.php';
-require_once '../config/plans.php';
 require_once '../config/security.php';
 
 if (!validate_session()) {
@@ -22,525 +21,350 @@ if ($user['email'] === 'franzpc@gmail.com' && $user['role'] !== 'admin') {
     $user['role'] = 'admin';
 }
 
-function get_user_statistics() {
-    global $pdo;
-    
-    $stats = [];
-    
-    $stmt = $pdo->query("SELECT COUNT(*) as total_users FROM users");
-    $stats['total_users'] = $stmt->fetchColumn();
-    
-    $stmt = $pdo->query("SELECT COUNT(*) as active_users FROM users WHERE is_active = 1");
-    $stats['active_users'] = $stmt->fetchColumn();
-    
-    $stmt = $pdo->query("SELECT COUNT(*) as verified_users FROM users WHERE email_verified = 1");
-    $stats['verified_users'] = $stmt->fetchColumn();
-    
-    $stmt = $pdo->query("SELECT COUNT(*) as unverified_users FROM users WHERE email_verified = 0");
-    $stats['unverified_users'] = $stmt->fetchColumn();
-    
-    $stmt = $pdo->query("SELECT plan_type, COUNT(*) as count FROM users WHERE is_active = 1 GROUP BY plan_type");
-    $plan_data = $stmt->fetchAll();
-    $stats['plan_distribution'] = [];
-    foreach ($plan_data as $row) {
-        $stats['plan_distribution'][$row['plan_type']] = $row['count'];
-    }
-    
-    $stmt = $pdo->query("SELECT COUNT(*) as users_with_forms FROM users WHERE id IN (SELECT DISTINCT user_id FROM forms WHERE is_active = 1)");
-    $stats['users_with_forms'] = $stmt->fetchColumn();
-    
-    $stmt = $pdo->query("SELECT COUNT(*) as users_logged_in_30d FROM users WHERE last_login > DATE_SUB(NOW(), INTERVAL 30 DAY)");
-    $stats['users_logged_in_30d'] = $stmt->fetchColumn();
-    
-    return $stats;
-}
+// Get statistics
+$stats = [];
 
-function get_form_statistics() {
-    global $pdo;
-    
-    $stats = [];
-    
-    $stmt = $pdo->query("SELECT COUNT(*) as total_forms FROM forms WHERE is_active = 1");
-    $stats['total_forms'] = $stmt->fetchColumn();
-    
-    $stmt = $pdo->query("SELECT COUNT(*) as forms_with_responses FROM forms WHERE response_count > 0 AND is_active = 1");
-    $stats['forms_with_responses'] = $stmt->fetchColumn();
-    
-    $stmt = $pdo->query("SELECT COUNT(*) as unused_forms FROM forms WHERE response_count = 0 AND is_active = 1");
-    $stats['unused_forms'] = $stmt->fetchColumn();
-    
-    $stmt = $pdo->query("SELECT SUM(response_count) as total_responses FROM forms WHERE is_active = 1");
-    $stats['total_responses'] = $stmt->fetchColumn() ?: 0;
-    
-    $stmt = $pdo->query("SELECT AVG(response_count) as avg_responses_per_form FROM forms WHERE is_active = 1");
-    $stats['avg_responses_per_form'] = round($stmt->fetchColumn() ?: 0, 2);
-    
-    $stmt = $pdo->query("SELECT storage_type, COUNT(*) as count FROM forms WHERE is_active = 1 GROUP BY storage_type");
-    $storage_data = $stmt->fetchAll();
-    $stats['storage_distribution'] = [];
-    foreach ($storage_data as $row) {
-        $stats['storage_distribution'][$row['storage_type']] = $row['count'];
-    }
-    
-    $stmt = $pdo->query("SELECT COUNT(*) as forms_created_30d FROM forms WHERE created_at > DATE_SUB(NOW(), INTERVAL 30 DAY) AND is_active = 1");
-    $stats['forms_created_30d'] = $stmt->fetchColumn();
-    
-    return $stats;
-}
+// Users stats
+$stmt = $pdo->query("SELECT COUNT(*) FROM users WHERE is_active = 1");
+$stats['total_users'] = $stmt->fetchColumn();
 
-function get_daily_activity($days = 30) {
-    global $pdo;
-    
-    $stmt = $pdo->prepare("
-        SELECT 
-            DATE(created_at) as date,
-            COUNT(*) as new_users
-        FROM users 
-        WHERE created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)
-        GROUP BY DATE(created_at)
-        ORDER BY date DESC
-    ");
-    $stmt->execute([$days]);
-    $user_activity = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
-    
-    $stmt = $pdo->prepare("
-        SELECT 
-            DATE(created_at) as date,
-            COUNT(*) as new_forms
-        FROM forms 
-        WHERE created_at >= DATE_SUB(NOW(), INTERVAL ? DAY) AND is_active = 1
-        GROUP BY DATE(created_at)
-        ORDER BY date DESC
-    ");
-    $stmt->execute([$days]);
-    $form_activity = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
-    
-    $stmt = $pdo->prepare("
-        SELECT 
-            DATE(created_at) as date,
-            COUNT(*) as new_responses
-        FROM responses_free 
-        WHERE created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)
-        GROUP BY DATE(created_at)
-        ORDER BY date DESC
-    ");
-    $stmt->execute([$days]);
-    $response_activity = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
-    
-    $activity = [];
-    for ($i = $days - 1; $i >= 0; $i--) {
-        $date = date('Y-m-d', strtotime("-$i days"));
-        $activity[] = [
-            'date' => $date,
-            'new_users' => $user_activity[$date] ?? 0,
-            'new_forms' => $form_activity[$date] ?? 0,
-            'new_responses' => $response_activity[$date] ?? 0
-        ];
-    }
-    
-    return $activity;
-}
+$stmt = $pdo->query("SELECT COUNT(*) FROM users WHERE plan_type = 'free'");
+$stats['free_users'] = $stmt->fetchColumn();
 
-function get_top_forms($limit = 10) {
-    global $pdo;
-    
-    $stmt = $pdo->prepare("
-        SELECT 
-            f.id,
-            f.title,
-            f.form_code,
-            f.response_count,
-            f.storage_type,
-            f.created_at,
-            u.name as user_name,
-            u.email as user_email
-        FROM forms f
-        JOIN users u ON f.user_id = u.id
-        WHERE f.is_active = 1
-        ORDER BY f.response_count DESC, f.created_at DESC
-        LIMIT ?
-    ");
-    $stmt->execute([$limit]);
-    return $stmt->fetchAll();
-}
+$stmt = $pdo->query("SELECT COUNT(*) FROM users WHERE plan_type IN ('basic', 'premium')");
+$stats['paid_users'] = $stmt->fetchColumn();
 
-function get_storage_usage() {
-    global $pdo;
-    
-    $stmt = $pdo->query("SELECT COUNT(*) as free_responses FROM responses_free");
-    $free_responses = $stmt->fetchColumn();
-    
-    $stmt = $pdo->query("SELECT storage_type, COUNT(*) as form_count, SUM(response_count) as total_responses FROM forms WHERE is_active = 1 GROUP BY storage_type");
-    $storage_data = $stmt->fetchAll();
-    
-    $usage = [
-        'admin_supabase' => ['forms' => 0, 'responses' => $free_responses],
-        'user_supabase' => ['forms' => 0, 'responses' => 0],
-        'user_postgres' => ['forms' => 0, 'responses' => 0]
-    ];
-    
-    foreach ($storage_data as $row) {
-        $type = $row['storage_type'];
-        if (isset($usage[$type])) {
-            $usage[$type]['forms'] = $row['form_count'];
-            if ($type !== 'admin_supabase') {
-                $usage[$type]['responses'] = $row['total_responses'];
-            }
-        }
-    }
-    
-    return $usage;
-}
+$stmt = $pdo->query("SELECT COUNT(*) FROM users WHERE created_at > DATE_SUB(NOW(), INTERVAL 30 DAY)");
+$stats['new_users_30d'] = $stmt->fetchColumn();
 
-function get_recent_users($limit = 10) {
-    global $pdo;
-    
-    $stmt = $pdo->prepare("
-        SELECT 
-            id,
-            name,
-            email,
-            plan_type,
-            is_active,
-            email_verified,
-            created_at,
-            last_login
-        FROM users
-        ORDER BY created_at DESC
-        LIMIT ?
-    ");
-    $stmt->execute([$limit]);
-    return $stmt->fetchAll();
-}
+// Forms stats
+$stmt = $pdo->query("SELECT COUNT(*) FROM forms WHERE is_active = 1");
+$stats['total_forms'] = $stmt->fetchColumn();
 
-$user_stats = get_user_statistics();
-$form_stats = get_form_statistics();
-$daily_activity = get_daily_activity(30);
-$top_forms = get_top_forms(10);
-$storage_usage = get_storage_usage();
-$recent_users = get_recent_users(10);
+$stmt = $pdo->query("SELECT SUM(response_count) FROM forms");
+$stats['total_responses'] = $stmt->fetchColumn() ?? 0;
+
+$stmt = $pdo->query("SELECT COUNT(*) FROM forms WHERE created_at > DATE_SUB(NOW(), INTERVAL 30 DAY)");
+$stats['new_forms_30d'] = $stmt->fetchColumn();
+
+// Storage stats
+$stmt = $pdo->query("SELECT COUNT(*) FROM forms WHERE storage_type = 'admin_supabase'");
+$stats['free_plan_forms'] = $stmt->fetchColumn();
+
+$stmt = $pdo->query("SELECT COUNT(*) FROM forms WHERE storage_type IN ('user_supabase', 'user_postgres')");
+$stats['premium_forms'] = $stmt->fetchColumn();
+
+// Recent activity
+$stmt = $pdo->query("SELECT u.name, u.email, u.plan_type, u.created_at
+                     FROM users u
+                     ORDER BY u.created_at DESC
+                     LIMIT 10");
+$recent_users = $stmt->fetchAll();
+
+$stmt = $pdo->query("SELECT f.title, f.response_count, f.created_at, u.name as user_name, u.email as user_email
+                     FROM forms f
+                     JOIN users u ON f.user_id = u.id
+                     ORDER BY f.created_at DESC
+                     LIMIT 10");
+$recent_forms = $stmt->fetchAll();
+
+// Daily stats for chart
+$stmt = $pdo->query("SELECT DATE(created_at) as date, COUNT(*) as count
+                     FROM users
+                     WHERE created_at > DATE_SUB(NOW(), INTERVAL 30 DAY)
+                     GROUP BY DATE(created_at)
+                     ORDER BY date ASC");
+$daily_users = $stmt->fetchAll();
+
+$stmt = $pdo->query("SELECT DATE(created_at) as date, COUNT(*) as count
+                     FROM forms
+                     WHERE created_at > DATE_SUB(NOW(), INTERVAL 30 DAY)
+                     GROUP BY DATE(created_at)
+                     ORDER BY date ASC");
+$daily_forms = $stmt->fetchAll();
+
+// Page configuration
+$page_title = "Analytics Dashboard";
+$navbar_class = "bg-danger";
+
+// Include header
+include '../includes/header.php';
 ?>
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Analytics Dashboard - ArcGeek Survey Admin</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-</head>
-<body class="bg-light">
-    <nav class="navbar navbar-expand-lg navbar-dark bg-danger">
-        <div class="container">
-            <a class="navbar-brand" href="index.php">
-                <i class="fas fa-chart-line"></i> Analytics Dashboard
-            </a>
-            <div class="navbar-nav ms-auto">
-                <a class="nav-link" href="index.php">Admin Panel</a>
-                <a class="nav-link" href="system-settings.php">Settings</a>
-                <a class="nav-link" href="../dashboard/">Dashboard</a>
+
+<div class="row mb-4">
+    <div class="col-12">
+        <h2><i class="fas fa-chart-line"></i> Analytics Dashboard</h2>
+        <p class="text-muted">System-wide statistics and insights</p>
+    </div>
+</div>
+
+<!-- Key Metrics -->
+<div class="row g-4 mb-4">
+    <div class="col-md-3">
+        <div class="card border-primary">
+            <div class="card-body text-center">
+                <i class="fas fa-users fa-2x text-primary mb-2"></i>
+                <h3 class="mb-0"><?php echo number_format($stats['total_users']); ?></h3>
+                <p class="text-muted mb-0">Total Users</p>
+                <small class="text-success">
+                    <i class="fas fa-arrow-up"></i> <?php echo $stats['new_users_30d']; ?> this month
+                </small>
             </div>
         </div>
-    </nav>
+    </div>
 
-    <div class="container mt-4">
-        <div class="row">
-            <div class="col-md-8">
-                <h2>System Analytics</h2>
-                <p class="text-muted">Comprehensive overview of platform usage and performance</p>
-            </div>
-            <div class="col-md-4 text-end">
-                <button class="btn btn-outline-primary" onclick="window.print()">
-                    <i class="fas fa-print"></i> Print Report
-                </button>
+    <div class="col-md-3">
+        <div class="card border-success">
+            <div class="card-body text-center">
+                <i class="fas fa-wpforms fa-2x text-success mb-2"></i>
+                <h3 class="mb-0"><?php echo number_format($stats['total_forms']); ?></h3>
+                <p class="text-muted mb-0">Active Forms</p>
+                <small class="text-success">
+                    <i class="fas fa-arrow-up"></i> <?php echo $stats['new_forms_30d']; ?> this month
+                </small>
             </div>
         </div>
+    </div>
 
-        <div class="row mb-4">
-            <div class="col-md-3">
-                <div class="card text-center border-primary">
-                    <div class="card-body">
-                        <h3 class="text-primary"><?php echo number_format($user_stats['total_users']); ?></h3>
-                        <p class="card-text">Total Users</p>
-                        <small class="text-muted"><?php echo $user_stats['active_users']; ?> active</small>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="card text-center border-success">
-                    <div class="card-body">
-                        <h3 class="text-success"><?php echo number_format($form_stats['total_forms']); ?></h3>
-                        <p class="card-text">Total Forms</p>
-                        <small class="text-muted"><?php echo $form_stats['forms_with_responses']; ?> with responses</small>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="card text-center border-info">
-                    <div class="card-body">
-                        <h3 class="text-info"><?php echo number_format($form_stats['total_responses']); ?></h3>
-                        <p class="card-text">Total Responses</p>
-                        <small class="text-muted"><?php echo $form_stats['avg_responses_per_form']; ?> avg per form</small>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="card text-center border-warning">
-                    <div class="card-body">
-                        <h3 class="text-warning"><?php echo $user_stats['users_logged_in_30d']; ?></h3>
-                        <p class="card-text">Active (30d)</p>
-                        <small class="text-muted"><?php echo round(($user_stats['users_logged_in_30d'] / $user_stats['total_users']) * 100, 1); ?>% of total</small>
-                    </div>
-                </div>
+    <div class="col-md-3">
+        <div class="card border-info">
+            <div class="card-body text-center">
+                <i class="fas fa-comments fa-2x text-info mb-2"></i>
+                <h3 class="mb-0"><?php echo number_format($stats['total_responses']); ?></h3>
+                <p class="text-muted mb-0">Total Responses</p>
+                <small class="text-muted">All time</small>
             </div>
         </div>
+    </div>
 
-        <div class="row">
-            <div class="col-lg-8">
-                <div class="card mb-4">
-                    <div class="card-header">
-                        <h5><i class="fas fa-chart-line"></i> Daily Activity (Last 30 Days)</h5>
-                    </div>
-                    <div class="card-body">
-                        <canvas id="activityChart" height="100"></canvas>
-                    </div>
-                </div>
-
-                <div class="card mb-4">
-                    <div class="card-header">
-                        <h5><i class="fas fa-trophy"></i> Top Performing Forms</h5>
-                    </div>
-                    <div class="card-body">
-                        <div class="table-responsive">
-                            <table class="table table-hover">
-                                <thead>
-                                    <tr>
-                                        <th>Form Title</th>
-                                        <th>Code</th>
-                                        <th>Responses</th>
-                                        <th>Storage</th>
-                                        <th>Owner</th>
-                                        <th>Created</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <?php foreach ($top_forms as $form): ?>
-                                        <tr>
-                                            <td>
-                                                <strong><?php echo htmlspecialchars($form['title']); ?></strong>
-                                            </td>
-                                            <td><code><?php echo $form['form_code']; ?></code></td>
-                                            <td>
-                                                <span class="badge bg-primary"><?php echo $form['response_count']; ?></span>
-                                            </td>
-                                            <td>
-                                                <?php 
-                                                $storage_labels = [
-                                                    'admin_supabase' => '<span class="badge bg-success">Shared</span>',
-                                                    'user_supabase' => '<span class="badge bg-info">Supabase</span>',
-                                                    'user_postgres' => '<span class="badge bg-warning">PostgreSQL</span>'
-                                                ];
-                                                echo $storage_labels[$form['storage_type']] ?? $form['storage_type'];
-                                                ?>
-                                            </td>
-                                            <td>
-                                                <div>
-                                                    <strong><?php echo htmlspecialchars($form['user_name']); ?></strong>
-                                                    <br><small class="text-muted"><?php echo htmlspecialchars($form['user_email']); ?></small>
-                                                </div>
-                                            </td>
-                                            <td><?php echo date('M j, Y', strtotime($form['created_at'])); ?></td>
-                                        </tr>
-                                    <?php endforeach; ?>
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="col-lg-4">
-                <div class="card mb-4">
-                    <div class="card-header">
-                        <h6><i class="fas fa-users"></i> User Distribution</h6>
-                    </div>
-                    <div class="card-body">
-                        <?php foreach ($user_stats['plan_distribution'] as $plan => $count): ?>
-                            <div class="d-flex justify-content-between mb-2">
-                                <span><?php echo ucfirst($plan); ?>:</span>
-                                <strong><?php echo $count; ?></strong>
-                            </div>
-                        <?php endforeach; ?>
-                        
-                        <hr>
-                        
-                        <div class="row text-center">
-                            <div class="col-6">
-                                <h6 class="text-success"><?php echo $user_stats['verified_users']; ?></h6>
-                                <small class="text-muted">Verified</small>
-                            </div>
-                            <div class="col-6">
-                                <h6 class="text-warning"><?php echo $user_stats['unverified_users']; ?></h6>
-                                <small class="text-muted">Unverified</small>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="card mb-4">
-                    <div class="card-header">
-                        <h6><i class="fas fa-database"></i> Storage Usage</h6>
-                    </div>
-                    <div class="card-body">
-                        <?php foreach ($storage_usage as $type => $data): ?>
-                            <div class="mb-3">
-                                <div class="d-flex justify-content-between">
-                                    <span>
-                                        <?php 
-                                        $type_names = [
-                                            'admin_supabase' => 'Shared Database',
-                                            'user_supabase' => 'User Supabase',
-                                            'user_postgres' => 'User PostgreSQL'
-                                        ];
-                                        echo $type_names[$type];
-                                        ?>
-                                    </span>
-                                    <small class="text-muted"><?php echo $data['forms']; ?> forms</small>
-                                </div>
-                                <div class="progress" style="height: 8px;">
-                                    <?php 
-                                    $total_responses = array_sum(array_column($storage_usage, 'responses'));
-                                    $percentage = $total_responses > 0 ? ($data['responses'] / $total_responses) * 100 : 0;
-                                    $color = $type === 'admin_supabase' ? 'success' : ($type === 'user_supabase' ? 'info' : 'warning');
-                                    ?>
-                                    <div class="progress-bar bg-<?php echo $color; ?>" style="width: <?php echo $percentage; ?>%"></div>
-                                </div>
-                                <small class="text-muted"><?php echo number_format($data['responses']); ?> responses</small>
-                            </div>
-                        <?php endforeach; ?>
-                    </div>
-                </div>
-
-                <div class="card">
-                    <div class="card-header">
-                        <h6><i class="fas fa-clock"></i> Recent Users</h6>
-                    </div>
-                    <div class="card-body">
-                        <?php foreach (array_slice($recent_users, 0, 5) as $user): ?>
-                            <div class="d-flex justify-content-between align-items-center mb-2">
-                                <div>
-                                    <strong><?php echo htmlspecialchars($user['name']); ?></strong>
-                                    <br><small class="text-muted"><?php echo htmlspecialchars($user['email']); ?></small>
-                                </div>
-                                <div class="text-end">
-                                    <span class="badge bg-<?php echo $user['plan_type'] === 'free' ? 'secondary' : ($user['plan_type'] === 'basic' ? 'primary' : 'warning'); ?>">
-                                        <?php echo ucfirst($user['plan_type']); ?>
-                                    </span>
-                                    <br><small class="text-muted"><?php echo date('M j', strtotime($user['created_at'])); ?></small>
-                                </div>
-                            </div>
-                        <?php endforeach; ?>
-                    </div>
-                </div>
+    <div class="col-md-3">
+        <div class="card border-warning">
+            <div class="card-body text-center">
+                <i class="fas fa-crown fa-2x text-warning mb-2"></i>
+                <h3 class="mb-0"><?php echo number_format($stats['paid_users']); ?></h3>
+                <p class="text-muted mb-0">Premium Users</p>
+                <small class="text-muted"><?php echo round(($stats['paid_users'] / max($stats['total_users'], 1)) * 100, 1); ?>% of total</small>
             </div>
         </div>
+    </div>
+</div>
 
-        <div class="row mt-4">
-            <div class="col-md-6">
-                <div class="card">
-                    <div class="card-header">
-                        <h6><i class="fas fa-exclamation-triangle"></i> System Health</h6>
-                    </div>
-                    <div class="card-body">
-                        <div class="row">
-                            <div class="col-6">
-                                <h6 class="text-warning"><?php echo $user_stats['unverified_users']; ?></h6>
-                                <small class="text-muted">Unverified Users</small>
-                            </div>
-                            <div class="col-6">
-                                <h6 class="text-info"><?php echo $form_stats['unused_forms']; ?></h6>
-                                <small class="text-muted">Unused Forms</small>
-                            </div>
-                        </div>
-                        
-                        <hr>
-                        
-                        <div class="row">
-                            <div class="col-6">
-                                <h6 class="text-success"><?php echo $user_stats['users_with_forms']; ?></h6>
-                                <small class="text-muted">Users with Forms</small>
-                            </div>
-                            <div class="col-6">
-                                <h6 class="text-primary"><?php echo $form_stats['forms_created_30d']; ?></h6>
-                                <small class="text-muted">Forms (30d)</small>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+<!-- Charts Row -->
+<div class="row g-4 mb-4">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="fas fa-chart-area"></i> User Growth (Last 30 Days)</h5>
             </div>
-            
-            <div class="col-md-6">
-                <div class="card">
-                    <div class="card-header">
-                        <h6><i class="fas fa-server"></i> System Information</h6>
+            <div class="card-body">
+                <canvas id="usersChart" height="200"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="fas fa-chart-bar"></i> Form Creation (Last 30 Days)</h5>
+            </div>
+            <div class="card-body">
+                <canvas id="formsChart" height="200"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Plan Distribution -->
+<div class="row g-4 mb-4">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="fas fa-chart-pie"></i> User Distribution by Plan</h5>
+            </div>
+            <div class="card-body">
+                <canvas id="planChart" height="250"></canvas>
+                <div class="mt-3">
+                    <div class="d-flex justify-content-between mb-2">
+                        <span>Free Users:</span>
+                        <strong><?php echo number_format($stats['free_users']); ?> (<?php echo round(($stats['free_users'] / max($stats['total_users'], 1)) * 100, 1); ?>%)</strong>
                     </div>
-                    <div class="card-body">
-                        <ul class="list-unstyled mb-0">
-                            <li><strong>PHP Version:</strong> <?php echo PHP_VERSION; ?></li>
-                            <li><strong>MySQL Version:</strong> <?php echo $pdo->getAttribute(PDO::ATTR_SERVER_VERSION); ?></li>
-                            <li><strong>Server:</strong> <?php echo $_SERVER['SERVER_SOFTWARE'] ?? 'Unknown'; ?></li>
-                            <li><strong>Last Updated:</strong> <?php echo date('Y-m-d H:i:s'); ?></li>
-                        </ul>
+                    <div class="d-flex justify-content-between">
+                        <span>Premium Users:</span>
+                        <strong><?php echo number_format($stats['paid_users']); ?> (<?php echo round(($stats['paid_users'] / max($stats['total_users'], 1)) * 100, 1); ?>%)</strong>
                     </div>
                 </div>
             </div>
         </div>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script>
-        const activityData = <?php echo json_encode($daily_activity); ?>;
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="fas fa-database"></i> Storage Distribution</h5>
+            </div>
+            <div class="card-body">
+                <canvas id="storageChart" height="250"></canvas>
+                <div class="mt-3">
+                    <div class="d-flex justify-content-between mb-2">
+                        <span>Free Plan Storage:</span>
+                        <strong><?php echo number_format($stats['free_plan_forms']); ?> forms</strong>
+                    </div>
+                    <div class="d-flex justify-content-between">
+                        <span>User Storage:</span>
+                        <strong><?php echo number_format($stats['premium_forms']); ?> forms</strong>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
 
-        const activityCtx = document.getElementById('activityChart').getContext('2d');
-        new Chart(activityCtx, {
-            type: 'line',
-            data: {
-                labels: activityData.map(d => new Date(d.date).toLocaleDateString('en-US', {month: 'short', day: 'numeric'})),
-                datasets: [
-                    {
-                        label: 'New Users',
-                        data: activityData.map(d => d.new_users),
-                        borderColor: 'rgb(54, 162, 235)',
-                        backgroundColor: 'rgba(54, 162, 235, 0.1)',
-                        tension: 0.1
-                    },
-                    {
-                        label: 'New Forms',
-                        data: activityData.map(d => d.new_forms),
-                        borderColor: 'rgb(75, 192, 192)',
-                        backgroundColor: 'rgba(75, 192, 192, 0.1)',
-                        tension: 0.1
-                    },
-                    {
-                        label: 'New Responses',
-                        data: activityData.map(d => d.new_responses),
-                        borderColor: 'rgb(255, 159, 64)',
-                        backgroundColor: 'rgba(255, 159, 64, 0.1)',
-                        tension: 0.1
-                    }
-                ]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                scales: {
-                    y: {
-                        beginAtZero: true
-                    }
-                }
-            }
-        });
-    </script>
-</body>
-</html>
+<!-- Recent Activity -->
+<div class="row g-4">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="fas fa-user-plus"></i> Recent User Registrations</h5>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Email</th>
+                                <th>Plan</th>
+                                <th>Date</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($recent_users as $u): ?>
+                            <tr>
+                                <td><?php echo htmlspecialchars($u['name']); ?></td>
+                                <td><small><?php echo htmlspecialchars($u['email']); ?></small></td>
+                                <td>
+                                    <span class="badge bg-<?php echo $u['plan_type'] === 'free' ? 'secondary' : 'success'; ?>">
+                                        <?php echo ucfirst($u['plan_type']); ?>
+                                    </span>
+                                </td>
+                                <td><small><?php echo date('M d', strtotime($u['created_at'])); ?></small></td>
+                            </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="fas fa-plus-circle"></i> Recently Created Forms</h5>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover">
+                        <thead>
+                            <tr>
+                                <th>Title</th>
+                                <th>User</th>
+                                <th>Responses</th>
+                                <th>Date</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($recent_forms as $f): ?>
+                            <tr>
+                                <td><?php echo htmlspecialchars($f['title']); ?></td>
+                                <td><small><?php echo htmlspecialchars($f['user_name']); ?></small></td>
+                                <td><span class="badge bg-info"><?php echo $f['response_count']; ?></span></td>
+                                <td><small><?php echo date('M d', strtotime($f['created_at'])); ?></small></td>
+                            </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<?php
+// Additional footer scripts for charts
+$additional_footer_scripts = '
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+// Users Chart
+const usersData = ' . json_encode($daily_users) . ';
+const usersChart = new Chart(document.getElementById("usersChart"), {
+    type: "line",
+    data: {
+        labels: usersData.map(d => new Date(d.date).toLocaleDateString("en-US", {month: "short", day: "numeric"})),
+        datasets: [{
+            label: "New Users",
+            data: usersData.map(d => d.count),
+            borderColor: "#0d6efd",
+            backgroundColor: "rgba(13, 110, 253, 0.1)",
+            tension: 0.4,
+            fill: true
+        }]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: {display: false}
+        }
+    }
+});
+
+// Forms Chart
+const formsData = ' . json_encode($daily_forms) . ';
+const formsChart = new Chart(document.getElementById("formsChart"), {
+    type: "bar",
+    data: {
+        labels: formsData.map(d => new Date(d.date).toLocaleDateString("en-US", {month: "short", day: "numeric"})),
+        datasets: [{
+            label: "New Forms",
+            data: formsData.map(d => d.count),
+            backgroundColor: "#198754",
+        }]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: {display: false}
+        }
+    }
+});
+
+// Plan Distribution Chart
+const planChart = new Chart(document.getElementById("planChart"), {
+    type: "doughnut",
+    data: {
+        labels: ["Free Users", "Premium Users"],
+        datasets: [{
+            data: [' . $stats['free_users'] . ', ' . $stats['paid_users'] . '],
+            backgroundColor: ["#6c757d", "#ffc107"],
+        }]
+    }
+});
+
+// Storage Distribution Chart
+const storageChart = new Chart(document.getElementById("storageChart"), {
+    type: "doughnut",
+    data: {
+        labels: ["Free Plan Storage", "User Storage"],
+        datasets: [{
+            data: [' . $stats['free_plan_forms'] . ', ' . $stats['premium_forms'] . '],
+            backgroundColor: ["#0dcaf0", "#0d6efd"],
+        }]
+    }
+});
+</script>
+';
+
+include '../includes/footer.php';
+?>
