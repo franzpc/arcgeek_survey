@@ -1,7 +1,7 @@
 [general]
 name=ArcGeek Survey
 qgisMinimumVersion=3.34
-qgisMaximumVersion=3.99
+qgisMaximumVersion=4.99
 description=Create and manage georeferenced surveys with mobile data collection and PostgreSQL/PostGIS integration
 version=1.0.1
 author=ArcGeek
@@ -17,6 +17,10 @@ experimental=False
 deprecated=False
 hasProcessingProvider=no
 server=False
+
+# Qt/PyQt compatibility
+supportsQt5=True
+supportsQt6=True
 changelog=1.0.0
     - Initial release
     - Create georeferenced surveys with custom fields
