@@ -205,6 +205,50 @@ $page_title = $strings['admin_panel'];
 $navbar_class = "bg-danger";
 include '../includes/header.php';
 ?>
+
+<!-- Admin Navigation Menu -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card border-primary">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0"><i class="fas fa-cog"></i> <?php echo $strings['admin_panel']; ?> - Quick Access</h5>
+            </div>
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-md-3">
+                        <a href="analytics.php" class="btn btn-outline-primary w-100 py-3">
+                            <i class="fas fa-chart-line fa-2x d-block mb-2"></i>
+                            <strong>Analytics</strong>
+                            <small class="d-block text-muted">Statistics & Charts</small>
+                        </a>
+                    </div>
+                    <div class="col-md-3">
+                        <a href="security-config.php" class="btn btn-outline-danger w-100 py-3">
+                            <i class="fas fa-shield-alt fa-2x d-block mb-2"></i>
+                            <strong>Security Config</strong>
+                            <small class="d-block text-muted">reCAPTCHA & Tokens</small>
+                        </a>
+                    </div>
+                    <div class="col-md-3">
+                        <a href="config.php" class="btn btn-outline-success w-100 py-3">
+                            <i class="fas fa-database fa-2x d-block mb-2"></i>
+                            <strong>Supabase Config</strong>
+                            <small class="d-block text-muted">Admin Database</small>
+                        </a>
+                    </div>
+                    <div class="col-md-3">
+                        <a href="system-settings.php" class="btn btn-outline-warning w-100 py-3">
+                            <i class="fas fa-cogs fa-2x d-block mb-2"></i>
+                            <strong>System Settings</strong>
+                            <small class="d-block text-muted">Cleanup & Email</small>
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
         <?php if ($message): ?>
             <div class="alert alert-success alert-dismissible fade show">
                 <i class="fas fa-check-circle"></i> <?php echo $message; ?>
