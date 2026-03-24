@@ -1,5 +1,5 @@
-# Never commit real secrets
-hostinger/internal/secrets.php
+# Hostinger files are managed locally — never go to GitHub
+hostinger/
 
 # OS / editor noise
 .DS_Store

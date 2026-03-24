@@ -1,3 +1,0 @@
-# Prevent directory listing only.
-# Bearer-token authentication is handled in db-proxy.php.
-Options -Indexes
