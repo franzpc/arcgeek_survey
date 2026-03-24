@@ -3,11 +3,25 @@ if (!defined('ARCGEEK_SURVEY')) {
     define('ARCGEEK_SURVEY', true);
 }
 
-// Plugin token is read from Google Secret Manager via Cloud Run env var.
-// Never hardcoded here.
+// Plugin token is fetched live from the proxy, which reads it from Supabase
+// exactly as the Hostinger portal does. Token rotation is transparent.
 function get_current_plugin_token() {
-    $token = getenv('PLUGIN_TOKEN');
-    return !empty($token) ? $token : false;
+    static $cache      = null;
+    static $cache_time = 0;
+
+    if ($cache !== null && (time() - $cache_time) < 1800) {
+        return $cache;
+    }
+
+    $result = proxy_call('get_plugin_token');
+    $token  = $result['token'] ?? false;
+
+    if ($token) {
+        $cache      = $token;
+        $cache_time = time();
+    }
+
+    return $token ?: false;
 }
 
 function validate_plugin_token($token) {

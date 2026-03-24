@@ -9,7 +9,7 @@ on:
 
 env:
   PROJECT_ID:   ${{ secrets.GCP_PROJECT_ID }}
-  REGION:       ${{ secrets.GCP_REGION }}          # e.g. us-central1
+  REGION:       ${{ secrets.GCP_REGION }}
   SERVICE_NAME: arcgeek-survey-api
   IMAGE:        arcgeek-survey-api
 
@@ -19,30 +19,25 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write   # needed for Workload Identity Federation (optional)
+      id-token: write
 
     steps:
-      # 1. Checkout
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2. Authenticate to Google Cloud
       - name: Authenticate to GCP
         uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
 
-      # 3. Set up gcloud CLI
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
         with:
           project_id: ${{ env.PROJECT_ID }}
 
-      # 4. Configure Docker to push to Artifact Registry
       - name: Configure Docker auth
         run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
 
-      # 5. Build Docker image from cloud-run/
       - name: Build Docker image
         run: |
           docker build \
@@ -50,13 +45,11 @@ jobs:
             -t ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/arcgeek/${{ env.IMAGE }}:latest \
             ./cloud-run
 
-      # 6. Push image to Artifact Registry
       - name: Push Docker image
         run: |
           docker push ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/arcgeek/${{ env.IMAGE }}:${{ github.sha }}
           docker push ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/arcgeek/${{ env.IMAGE }}:latest
 
-      # 7. Deploy to Cloud Run
       - name: Deploy to Cloud Run
         run: |
           gcloud run deploy ${{ env.SERVICE_NAME }} \
@@ -64,7 +57,7 @@ jobs:
             --region=${{ env.REGION }} \
             --platform=managed \
             --allow-unauthenticated \
-            --set-secrets="PLUGIN_TOKEN=arcgeek-plugin-token:latest,PROXY_URL=arcgeek-proxy-url:latest,PROXY_SECRET=arcgeek-proxy-secret:latest,ENCRYPTION_KEY=arcgeek-encryption-key:latest,ADMIN_EMAIL=arcgeek-admin-email:latest" \
+            --set-secrets="PROXY_URL=arcgeek-proxy-url:latest,PROXY_SECRET=arcgeek-proxy-secret:latest" \
             --min-instances=0 \
             --max-instances=10 \
             --memory=256Mi \
@@ -72,10 +65,9 @@ jobs:
             --timeout=30 \
             --concurrency=80
 
-      # 8. Print the service URL
-      - name: Get service URL
+      - name: Show service URL
         run: |
           URL=$(gcloud run services describe ${{ env.SERVICE_NAME }} \
             --region=${{ env.REGION }} --format='value(status.url)')
-          echo "✅ Deployed to: $URL"
-          echo "SERVICE_URL=$URL" >> $GITHUB_STEP_SUMMARY
+          echo "Deployed: $URL"
+          echo "API endpoint: $URL/public/api.php" >> $GITHUB_STEP_SUMMARY
