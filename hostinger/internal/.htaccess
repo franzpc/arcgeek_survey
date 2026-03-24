@@ -1,0 +1,4 @@
+# Block all direct web access to this directory.
+# Only server-side PHP (curl from Cloud Run) should call db-proxy.php.
+Order deny,allow
+Deny from all

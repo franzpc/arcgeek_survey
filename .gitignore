@@ -1,0 +1,9 @@
+# Never commit real secrets
+hostinger/internal/secrets.php
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
